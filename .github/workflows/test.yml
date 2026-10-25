@@ -6,6 +6,18 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Tag expression, for example @smoke'
+        required: false
+        default: ''
+        type: string
+concurrency:
+  group: tests-${{ guthub.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -23,4 +35,27 @@ jobs:
           cache: maven
 
       - name: Run Cucumber tests
-        run:  ./mvnw -B clean test
+        env:
+          TAGS: ${{ inputs.tags }}
+        run: |
+          args=()
+          if [ -n "$TAGS" ];then
+            args+=("-Dcucumber.filter.tags=$TAGS")
+          fi
+          ./mvnw -B clean test "${args[@]}"
+
+      - name: Wrtie run summary
+        if: always()
+        env:
+          TAGS: ${{ inputs.tags }}
+        run: |
+          echo "### Cucumber run" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tag filter: ${TAGS:-none (all scenarios)}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Cucumber reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cucumber-reports
+          path: target/cucumber-reports/
+          retention-days: 14
