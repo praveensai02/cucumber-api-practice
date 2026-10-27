@@ -1,0 +1,70 @@
+name: API tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Tag expression, for example @smoke'
+        required: false
+        default: ''
+        type: string
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [ '@smoke', '@regression' ]
+    timeout-minutes: 15
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run Cucumber tests
+        env:
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+          TAGS: ${{ inputs.tags }}
+          BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          args=()
+          if [ -n "$TAGS" ]; then
+            args+=("-Dcucumber.filter.tags=$TAGS")
+          fi
+          if [ -n "$BASE_URL"]; then
+           args+=("-Dapi.baseUrl=$BASE_URL")
+          fi
+          ./mvnw -B clean test "${args[@]}"
+
+      - name: Write run summary
+        if: always()
+        env:
+          TAGS: ${{ inputs.tags }}
+        run: |
+          echo "### Cucumber run" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tag filter: ${TAGS:-none (all scenarios)}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Cucumber reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cucumber-reports
+          path: target/cucumber-reports/
+          retention-days: 14
